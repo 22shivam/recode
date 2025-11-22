@@ -1,0 +1,73 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+agent/node_modules/
+
+# Environment variables (contains API keys!)
+.env
+.env.local
+.env.*.local
+frontend/.env
+frontend/.env.local
+agent/.env
+
+# Next.js build outputs
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# Convex generated files
+frontend/convex/_generated/
+
+# Production
+/build
+/dist
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+*.pem
+.vercel
+.turbo
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# TypeScript cache
+*.tsbuildinfo
+next-env.d.ts
