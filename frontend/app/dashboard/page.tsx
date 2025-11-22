@@ -1,17 +1,28 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import Link from "next/link";
 
 export default function Dashboard() {
   const errors = useQuery(api.errors.getAllErrors);
   const fixes = useQuery(api.fixes.getAllFixes);
+  const pendingFixes = useQuery(api.fixes.getPendingFixes);
+
+  const approveFix = useMutation(api.fixes.approveFix);
+  const rejectFix = useMutation(api.fixes.rejectFix);
 
   const unresolvedCount =
     errors?.filter((e) => !e.resolved).length || 0;
   const resolvedCount =
     errors?.filter((e) => e.resolved).length || 0;
+
+  // Calculate learning metrics
+  const totalReuses = fixes?.reduce((sum, fix) => sum + ((fix.timesApplied || 1) - 1), 0) || 0;
+  const uniqueFixes = fixes?.length || 0;
+  const avgEffectiveness = fixes && fixes.length > 0
+    ? (fixes.reduce((sum, fix) => sum + (fix.effectiveness || 1), 0) / fixes.length * 100).toFixed(0)
+    : 100;
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 p-8">
@@ -33,7 +44,7 @@ export default function Dashboard() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {/* Status Card */}
           <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-xl">
             <div className="flex items-center justify-between">
@@ -77,7 +88,7 @@ export default function Dashboard() {
                 <p className="text-green-100 text-sm font-medium mb-1">
                   Auto-Fixed
                 </p>
-                <p className="text-3xl font-bold">{fixes?.length || 0}</p>
+                <p className="text-3xl font-bold">{uniqueFixes}</p>
               </div>
               <div className="text-5xl opacity-20">✨</div>
             </div>
@@ -85,7 +96,106 @@ export default function Dashboard() {
               Successfully healed
             </p>
           </div>
+
+          {/* Learning Metrics Card */}
+          <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-6 text-white shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-purple-100 text-sm font-medium mb-1">
+                  Memory Reuses
+                </p>
+                <p className="text-3xl font-bold">{totalReuses}</p>
+              </div>
+              <div className="text-5xl opacity-20">🧠</div>
+            </div>
+            <p className="text-purple-100 text-sm mt-2">
+              Instant fixes from cache
+            </p>
+          </div>
         </div>
+
+        {/* Pending Fixes Section */}
+        {pendingFixes && pendingFixes.length > 0 && (
+          <div className="mb-8 bg-yellow-900/20 border-2 border-yellow-500/50 rounded-2xl p-6 shadow-xl">
+            <h2 className="text-2xl font-bold text-yellow-300 mb-4 flex items-center gap-2">
+              <span>⚠️</span> Pending Approval ({pendingFixes.length})
+            </h2>
+            <p className="text-slate-300 mb-4">
+              These fixes have low confidence and need human review before applying.
+            </p>
+
+            <div className="space-y-4">
+              {pendingFixes.map((fix) => (
+                <div
+                  key={fix._id}
+                  className="bg-slate-800 rounded-xl p-5 border border-yellow-500/30"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="text-yellow-300 font-semibold">
+                          🤖 Proposed Fix
+                        </span>
+                        <span className="text-xs px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
+                          Confidence: {fix.confidence}%
+                        </span>
+                      </div>
+                      <p className="text-sm text-slate-300 mb-2">
+                        {fix.reasoning}
+                      </p>
+                      {fix.errorPattern && (
+                        <p className="text-xs text-slate-400 mb-3">
+                          Pattern: {fix.errorPattern}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Code Preview */}
+                  <details className="text-xs mb-4">
+                    <summary className="text-slate-400 cursor-pointer hover:text-slate-300 font-medium">
+                      View proposed code changes
+                    </summary>
+                    <div className="mt-3 space-y-3">
+                      <div>
+                        <p className="text-red-400 font-medium mb-1">
+                          Current (broken):
+                        </p>
+                        <pre className="bg-slate-900 p-3 rounded text-red-300 overflow-x-auto text-xs">
+                          {fix.originalCode}
+                        </pre>
+                      </div>
+                      <div>
+                        <p className="text-green-400 font-medium mb-1">
+                          Proposed fix:
+                        </p>
+                        <pre className="bg-slate-900 p-3 rounded text-green-300 overflow-x-auto text-xs">
+                          {fix.fixedCode.substring(0, 500)}...
+                        </pre>
+                      </div>
+                    </div>
+                  </details>
+
+                  {/* Approval Buttons */}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => approveFix({ fixId: fix._id })}
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                      <span>✓</span> Approve & Apply
+                    </button>
+                    <button
+                      onClick={() => rejectFix({ fixId: fix._id })}
+                      className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                      <span>✗</span> Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Two Column Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -168,16 +278,33 @@ export default function Dashboard() {
                     className="p-4 rounded-lg bg-green-900/20 border-l-4 border-green-500"
                   >
                     <div className="flex items-start justify-between mb-2">
-                      <span className="text-green-300 font-semibold text-sm">
-                        ✓ Fix Applied
-                      </span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-green-300 font-semibold text-sm">
+                          ✓ Fix Applied
+                        </span>
+                        {fix.confidence && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                            {fix.confidence}% confidence
+                          </span>
+                        )}
+                        {fix.timesApplied && fix.timesApplied > 1 && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                            🧠 Reused {fix.timesApplied}x
+                          </span>
+                        )}
+                      </div>
                       <span className="text-xs text-slate-500">
                         {new Date(fix.timestamp).toLocaleTimeString()}
                       </span>
                     </div>
-                    <p className="text-sm text-slate-300 mb-3">
+                    <p className="text-sm text-slate-300 mb-2">
                       {fix.reasoning}
                     </p>
+                    {fix.errorPattern && (
+                      <p className="text-xs text-slate-400 mb-3">
+                        Pattern: {fix.errorPattern}
+                      </p>
+                    )}
 
                     {/* Code Preview */}
                     <details className="text-xs">

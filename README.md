@@ -15,11 +15,12 @@ A Next.js task management application with intentionally buggy Convex backend fu
 
 ### 2. **Autonomous Agent**
 A Node.js agent polls Convex every 3 seconds for unresolved errors. When detected, it:
-- Reads the broken TypeScript file from the filesystem
-- Sends the code + error context to Claude Sonnet 4.5 via Anthropic API
-- Receives a fixed version with minimal changes
+- Generates vector embedding of the error using OpenAI text-embedding-3-small
+- Searches Convex vector index for similar past fixes (cosine similarity)
+- If similarity >85%, applies cached fix instantly (~300ms)
+- Otherwise, reads broken code and sends to Claude Sonnet 4.5 via Anthropic API
 - Validates and writes the corrected code back to disk
-- Logs the fix to Convex for audit trails
+- Stores fix with embedding in Convex for future reuse
 
 ### 3. **Real-Time Synchronization**
 Convex provides instant reactivity:
@@ -46,8 +47,9 @@ User Retries Action → Success! ✨
 
 - ✅ **Autonomous Error Resolution** - No human in the loop
 - ✅ **Real-Time Dashboard** - Watch fixes happen live
-- ✅ **Convex Integration** - Deep usage of real-time DB, mutations, queries
-- ✅ **Learning Capability** - Stores fix history for future reference
+- ✅ **Convex Integration** - Deep usage of real-time DB, mutations, queries, vector search
+- ✅ **Vector Memory Learning** - AI learns from past fixes using semantic similarity search
+- ✅ **Instant Fix Reuse** - Repeated errors get fixed in <1s (85%+ similarity threshold)
 - ✅ **Production-Ready Patterns** - Error logging, validation, rollback support
 
 ---
@@ -58,6 +60,7 @@ User Retries Action → Success! ✨
 - Node.js 18+
 - Convex account (free at [convex.dev](https://convex.dev))
 - Anthropic API key ([console.anthropic.com](https://console.anthropic.com))
+- OpenAI API key ([platform.openai.com](https://platform.openai.com/api-keys))
 
 ### 1. Set up Convex
 
@@ -75,14 +78,17 @@ This will:
 
 **Note**: We use `--typecheck=disable` because the demo includes intentional TypeScript errors that need to reach runtime.
 
-### 2. Add your Anthropic API key
+### 2. Add your API keys
 
 Edit `frontend/.env.local` and add:
 ```bash
 ANTHROPIC_API_KEY=sk-ant-your-key-here
+OPENAI_API_KEY=sk-your-key-here
 ```
 
-Get your key from: https://console.anthropic.com/
+Get your keys from:
+- Anthropic: https://console.anthropic.com/
+- OpenAI: https://platform.openai.com/api-keys
 
 ### 3. Start the Next.js app
 
@@ -143,6 +149,8 @@ You should see:
 
 ## Reset for Another Demo 🔄
 
+### Full Reset (New Demo)
+
 After the agent fixes all bugs, reset everything:
 
 ```bash
@@ -153,7 +161,25 @@ node reset-bugs.js
 This will:
 - ✅ Restore the 3 bugs to `convex/tasks.ts`
 - ✅ Clear all error and fix history from Convex
-- ✅ Ready for another demo!
+- ✅ Ready for a fresh demo!
+
+### Reset Bugs Only (Test Vector Search) 🧠
+
+To test the vector search learning capability:
+
+```bash
+# From project root
+node reset-bugs-keep-history.js
+```
+
+This will:
+- ✅ Restore the 3 bugs to `convex/tasks.ts`
+- ✅ **Keep** all error and fix history in Convex
+- ✅ Ready to demonstrate instant fixes!
+
+**Expected behavior:**
+- **First run**: Claude analyzes code (~6 seconds per fix)
+- **Second run** (after reset-bugs-keep-history): Instant fixes from cache (~300ms) ⚡
 
 **Then restart the agent:**
 ```bash
@@ -176,17 +202,18 @@ recode/
 │   │   ├── layout.tsx            # Convex provider setup
 │   │   └── ConvexClientProvider.tsx
 │   ├── convex/
-│   │   ├── schema.ts             # Database schema (tasks, errors, fixes)
+│   │   ├── schema.ts             # Database schema (tasks, errors, fixes) + vector index
 │   │   ├── tasks.ts              # Task CRUD (with intentional bugs)
 │   │   ├── tasks.buggy.ts        # Backup for resetting
 │   │   ├── errors.ts             # Error logging functions
-│   │   └── fixes.ts              # Fix history functions
+│   │   └── fixes.ts              # Fix history + vector search functions
 │   └── package.json
 ├── agent/
-│   ├── index.js                  # AI agent (polls + fixes)
+│   ├── index.js                  # AI agent (polls + fixes + vector search)
 │   ├── clear-history.js          # Reset helper
 │   └── package.json
-├── reset-bugs.js                 # Demo reset script
+├── reset-bugs.js                 # Full reset (bugs + history)
+├── reset-bugs-keep-history.js    # Reset bugs only (for testing vector search)
 └── DEMO_SCRIPT.md                # 2-minute pitch guide
 ```
 
@@ -195,9 +222,11 @@ recode/
 ## Tech Stack
 
 - **Frontend**: Next.js 15 + React + TypeScript + Tailwind CSS
-- **Backend**: Convex (serverless functions + real-time database)
-- **AI**: Claude Sonnet 4.5 (via Anthropic API)
-- **Architecture**: Autonomous agent with OODA-loop pattern
+- **Backend**: Convex (serverless functions + real-time database + vector search)
+- **AI**:
+  - Claude Sonnet 4.5 (code analysis & fixing via Anthropic API)
+  - OpenAI text-embedding-3-small (semantic similarity for learning)
+- **Architecture**: Autonomous agent with OODA-loop pattern + vector memory
 
 ---
 
@@ -248,9 +277,9 @@ User clicks "Add Task" again → Success! ✅
 
 - 🔒 **Confidence Scoring** - Human approval gate for low-confidence fixes
 - 🧪 **Test Validation** - Run tests before applying fixes
-- 📊 **Vector Memory** - Store past fixes for instant pattern matching
 - 🌐 **Multi-Language Support** - Extend beyond TypeScript
 - 🔄 **Rollback System** - Auto-revert if fix doesn't work
+- 🎤 **Voice Integration** - Omi/Vapi voice notifications for critical fixes
 
 ---
 

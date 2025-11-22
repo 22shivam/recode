@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../frontend/convex/_generated/api.js";
 import { readFile, writeFile } from "fs/promises";
@@ -15,6 +16,10 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
 const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL);
 
 console.log("🤖 ReCode Agent Started!");
@@ -23,6 +28,77 @@ console.log("👁️  Monitoring for errors...\n");
 
 // Track which errors we've already tried to fix
 const attemptedFixes = new Set();
+
+// Check for approved fixes and apply them
+async function pollForApprovedFixes() {
+  try {
+    const approvedFixes = await convex.query(api.fixes.getApprovedFixes);
+
+    if (approvedFixes.length > 0) {
+      console.log(`\n✅ Found ${approvedFixes.length} approved fix(es)!`);
+      for (const fix of approvedFixes) {
+        await applyApprovedFix(fix);
+      }
+    }
+  } catch (error) {
+    console.error("❌ Error polling for approved fixes:", error.message);
+  }
+}
+
+async function applyApprovedFix(fix) {
+  console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`👤 Applying human-approved fix...`);
+  console.log(`📝 Reasoning: ${fix.reasoning}`);
+
+  try {
+    // Get the error to find the file path
+    const error = await convex.query(api.errors.getAllErrors);
+    const errorDoc = error.find(e => e._id === fix.errorId);
+
+    if (!errorDoc) {
+      console.error("❌ Error not found, skipping fix");
+      return;
+    }
+
+    const filePath = getFilePath(errorDoc.functionName);
+    console.log(`📂 Writing approved fix to: ${filePath}`);
+
+    // Apply the approved fix
+    await writeFile(filePath, fix.fixedCode, "utf-8");
+
+    console.log(`📊 Updating fix status to applied...`);
+
+    // Update fix status to applied
+    await convex.mutation(api.fixes.logFix, {
+      errorId: fix.errorId,
+      errorPattern: fix.errorPattern || "",
+      embedding: fix.embedding || [],
+      originalCode: fix.originalCode,
+      fixedCode: fix.fixedCode,
+      reasoning: fix.reasoning,
+      confidence: fix.confidence,
+      status: "applied",
+      appliedAt: Date.now(),
+    });
+
+    // Delete the pending fix
+    await convex.mutation(api.fixes.deleteFix, { id: fix._id });
+
+    // Mark error as resolved
+    await convex.mutation(api.errors.markResolved, {
+      errorId: fix.errorId,
+    });
+
+    // Remove from attempted fixes
+    attemptedFixes.delete(fix.errorId);
+
+    console.log(`✨ Approved fix applied! Convex will auto-reload.`);
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+  } catch (err) {
+    console.error(`❌ Failed to apply approved fix:`, err.message);
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+  }
+}
 
 async function pollForErrors() {
   try {
@@ -54,8 +130,65 @@ async function fixError(error) {
   // Mark this error as attempted
   attemptedFixes.add(error._id);
 
+  const startTime = Date.now();
+
   try {
-    // Determine which file to fix based on function name
+    // Create error pattern for semantic matching
+    const errorPattern = `${error.functionName}: ${error.errorMessage}`;
+
+    // Generate embedding for this error
+    console.log(`🔍 Searching for similar past fixes...`);
+    const embedding = await generateEmbedding(errorPattern);
+
+    // Search for similar fixes in Convex vector store (using action for vector search)
+    const similarFixes = await convex.action(api.fixes.searchSimilarFixes, {
+      embedding: embedding,
+      limit: 1,
+    });
+
+    // If we found a similar fix with high confidence, use it!
+    if (similarFixes.length > 0) {
+      const bestMatch = similarFixes[0];
+      const similarity = bestMatch._score || 0; // Convex returns similarity score
+
+      console.log(`\n💡 Found similar past fix! (Similarity: ${(similarity * 100).toFixed(1)}%)`);
+      console.log(`   Pattern: "${bestMatch.errorPattern}"`);
+      console.log(`   Times used: ${bestMatch.timesApplied || 1}x`);
+
+      // If similarity is high enough, reuse the fix
+      if (similarity > 0.85) {
+        const elapsedMs = Date.now() - startTime;
+        console.log(`\n⚡ INSTANT FIX from memory! (${elapsedMs}ms)`);
+        console.log(`📂 Reading file: ${getFilePath(error.functionName)}`);
+
+        // Apply the cached fix
+        const filePath = getFilePath(error.functionName);
+        await writeFile(filePath, bestMatch.fixedCode, "utf-8");
+
+        // Increment usage counter
+        await convex.mutation(api.fixes.incrementFixUsage, {
+          fixId: bestMatch._id,
+        });
+
+        // Mark error as resolved
+        await convex.mutation(api.errors.markResolved, {
+          errorId: error._id,
+        });
+
+        console.log(`✨ Applied cached fix! No Claude API call needed.`);
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+
+        // Remove from attempted fixes after successful application
+        attemptedFixes.delete(error._id);
+        return;
+      } else {
+        console.log(`   Similarity too low (${(similarity * 100).toFixed(1)}% < 85%), asking Claude for fresh analysis...`);
+      }
+    } else {
+      console.log(`   No similar fixes found in memory, asking Claude...`);
+    }
+
+    // No cached fix found or similarity too low, proceed with Claude
     const filePath = getFilePath(error.functionName);
     console.log(`📂 Reading file: ${filePath}`);
 
@@ -64,7 +197,7 @@ async function fixError(error) {
 
     console.log(`🤖 Asking Claude AI to fix the code...`);
 
-    // Ask Claude to fix it
+    // Ask Claude to fix it with confidence scoring
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 4000,
@@ -85,19 +218,52 @@ ${brokenCode}
 INSTRUCTIONS:
 1. Identify the bug causing this error
 2. Fix ONLY the bug - don't change anything else
-3. Return ONLY the raw TypeScript code - no markdown code blocks, no explanations, no \`\`\`
-4. Keep all import statements exactly as they are
-5. Keep all comments and structure the same
-6. The fix should be minimal - just change what's broken
+3. Return your response in this EXACT JSON format:
+{
+  "confidence": <number 0-100>,
+  "reasoning": "<brief explanation of the fix>",
+  "fixedCode": "<the complete fixed TypeScript code>"
+}
 
-IMPORTANT: Return ONLY the TypeScript code. Do NOT wrap it in \`\`\`typescript or any markdown formatting.
+CONFIDENCE SCORING:
+- 90-100: Simple, obvious fix (e.g., typo, wrong field name)
+- 70-89: Clear fix but requires some logic changes
+- 50-69: Fix works but may have edge cases
+- Below 50: Uncertain, needs human review
 
-Return the complete fixed file:`,
+IMPORTANT:
+- Return ONLY valid JSON, no markdown, no code blocks
+- The fixedCode should be the complete file with minimal changes
+- Keep all import statements exactly as they are`,
         },
       ],
     });
 
-    let fixedCode = response.content[0].text.trim();
+    const responseText = response.content[0].text.trim();
+
+    // Parse Claude's JSON response
+    let fixResult;
+    try {
+      // Try to extract JSON if wrapped in markdown
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        fixResult = JSON.parse(jsonMatch[0]);
+      } else {
+        fixResult = JSON.parse(responseText);
+      }
+    } catch (parseError) {
+      console.error("⚠️  Failed to parse JSON response, falling back to direct code");
+      // Fallback: treat entire response as code with high confidence
+      fixResult = {
+        confidence: 75,
+        reasoning: "Fix generated (JSON parse failed)",
+        fixedCode: responseText
+      };
+    }
+
+    let fixedCode = fixResult.fixedCode.trim();
+    const confidence = fixResult.confidence || 75;
+    const reasoning = fixResult.reasoning || "Fix generated by Claude";
 
     // Extract code from markdown blocks if Claude wrapped it despite instructions
     const codeBlockMatch = fixedCode.match(/```(?:typescript|ts)?\n([\s\S]*?)```/);
@@ -107,6 +273,8 @@ Return the complete fixed file:`,
     }
 
     console.log(`✅ Claude generated a fix!`);
+    console.log(`🎯 Confidence: ${confidence}%`);
+    console.log(`💭 Reasoning: ${reasoning}`);
 
     // Validate the fix has required imports
     if (!fixedCode.includes('import') || !fixedCode.includes('mutation') || !fixedCode.includes('query')) {
@@ -117,34 +285,85 @@ Return the complete fixed file:`,
     console.log(`\n📝 Preview of fix (first 300 chars):`);
     console.log(fixedCode.substring(0, 300) + "...\n");
 
-    console.log(`💾 Writing fixed code back to ${filePath}...`);
+    const CONFIDENCE_THRESHOLD = 101;
 
-    // Write the fix back
-    await writeFile(filePath, fixedCode, "utf-8");
+    // Check if confidence is high enough for auto-apply
+    if (confidence >= CONFIDENCE_THRESHOLD) {
+      console.log(`✅ Confidence ${confidence}% >= ${CONFIDENCE_THRESHOLD}% threshold - Auto-applying!`);
+      console.log(`💾 Writing fixed code back to ${filePath}...`);
 
-    console.log(`📊 Logging fix to Convex...`);
+      // Write the fix back
+      await writeFile(filePath, fixedCode, "utf-8");
 
-    // Log the fix to Convex
-    await convex.mutation(api.fixes.logFix, {
-      errorId: error._id,
-      originalCode: brokenCode.substring(0, 500), // Store snippet
-      fixedCode: fixedCode.substring(0, 500), // Store snippet
-      reasoning: `Fixed ${error.functionName}: ${error.errorMessage}`,
-    });
+      console.log(`📊 Logging fix to Convex with embedding...`);
 
-    // Mark error as resolved
-    await convex.mutation(api.errors.markResolved, {
-      errorId: error._id,
-    });
+      // Log the fix to Convex with embedding and mark as applied
+      await convex.mutation(api.fixes.logFix, {
+        errorId: error._id,
+        errorPattern: errorPattern,
+        embedding: embedding,
+        originalCode: brokenCode.substring(0, 500),
+        fixedCode: fixedCode,
+        reasoning: reasoning,
+        confidence: confidence,
+        status: "applied",
+        appliedAt: Date.now(),
+      });
 
-    console.log(`✨ Fix complete! Convex will auto-reload the function.`);
-    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+      const elapsedMs = Date.now() - startTime;
+      console.log(`⏱️  Total fix time: ${elapsedMs}ms`);
 
-    // Remove from attempted fixes after successful fix
-    attemptedFixes.delete(error._id);
+      // Mark error as resolved
+      await convex.mutation(api.errors.markResolved, {
+        errorId: error._id,
+      });
+
+      console.log(`✨ Fix complete! Convex will auto-reload the function.`);
+      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+
+      // Remove from attempted fixes after successful fix
+      attemptedFixes.delete(error._id);
+    } else {
+      console.log(`⚠️  Confidence ${confidence}% < ${CONFIDENCE_THRESHOLD}% threshold - Pending approval`);
+      console.log(`📊 Logging fix to Convex for manual review...`);
+
+      // Log the fix but mark as pending
+      await convex.mutation(api.fixes.logFix, {
+        errorId: error._id,
+        errorPattern: errorPattern,
+        embedding: embedding,
+        originalCode: brokenCode.substring(0, 500),
+        fixedCode: fixedCode,
+        reasoning: reasoning,
+        confidence: confidence,
+        status: "pending",
+      });
+
+      const elapsedMs = Date.now() - startTime;
+      console.log(`⏱️  Analysis time: ${elapsedMs}ms`);
+
+      console.log(`👤 Awaiting human approval in dashboard...`);
+      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+
+      // Keep error as unresolved until fix is approved
+      // Don't remove from attempted fixes - we'll monitor for approval
+    }
   } catch (err) {
     console.error(`❌ Failed to fix error:`, err.message);
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+  }
+}
+
+async function generateEmbedding(text) {
+  try {
+    const response = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: text,
+    });
+    return response.data[0].embedding;
+  } catch (error) {
+    console.error("❌ Error generating embedding:", error.message);
+    throw error;
   }
 }
 
@@ -156,6 +375,8 @@ function getFilePath(functionName) {
 
 // Poll every 3 seconds
 setInterval(pollForErrors, 3000);
+setInterval(pollForApprovedFixes, 3000);
 
-// Initial poll
+// Initial polls
 pollForErrors();
+pollForApprovedFixes();

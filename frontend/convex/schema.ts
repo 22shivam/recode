@@ -18,9 +18,23 @@ export default defineSchema({
 
   fixes: defineTable({
     errorId: v.id("errors"),
+    errorPattern: v.optional(v.string()), // "functionName: errorMessage" for semantic matching
+    embedding: v.optional(v.array(v.float64())), // Vector embedding for similarity search
     originalCode: v.string(),
     fixedCode: v.string(),
     reasoning: v.string(),
     timestamp: v.number(),
-  }).index("by_error", ["errorId"]),
+    confidence: v.optional(v.number()), // 0-100 score from Claude
+    status: v.optional(v.string()), // "applied" | "pending" | "rejected"
+    appliedAt: v.optional(v.number()), // Timestamp when fix was applied
+    effectiveness: v.optional(v.number()), // 0-1 score, tracks if fix worked
+    timesApplied: v.optional(v.number()), // How many times this fix was reused
+  })
+    .index("by_error", ["errorId"])
+    .index("by_status", ["status"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536, // OpenAI text-embedding-3-small dimension
+      filterFields: ["errorPattern"], // Can filter by pattern for faster search
+    }),
 });

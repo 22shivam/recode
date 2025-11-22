@@ -11,10 +11,10 @@ export const getTasks = query({
 
 // Add a new task
 export const addTask = mutation({
-  args: { taskText: v.string() }, // BUG: Frontend sends 'text' but we expect 'taskText'
+  args: { text: v.string() },
   handler: async (ctx, args) => {
     const taskId = await ctx.db.insert("tasks", {
-      text: args.taskText,
+      text: args.text,
       completed: false,
       createdAt: Date.now(),
     });
@@ -30,15 +30,15 @@ export const toggleTask = mutation({
     if (!task) throw new Error("Task not found");
 
     await ctx.db.patch(args.id, {
-      completedStatus: !task.completed, // BUG: Field is 'completed' not 'completedStatus'
+      completed: !task.completed,
     });
   },
 });
 
 // Delete a task
 export const deleteTask = mutation({
-  args: { taskId: v.id("tasks") }, // BUG: Frontend sends 'id' but we expect 'taskId'
+  args: { id: v.id("tasks") },
   handler: async (ctx, args) => {
-    await ctx.db.delete(args.taskId);
+    await ctx.db.delete(args.id);
   },
 });
