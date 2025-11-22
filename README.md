@@ -50,6 +50,8 @@ User Retries Action → Success! ✨
 - ✅ **Convex Integration** - Deep usage of real-time DB, mutations, queries, vector search
 - ✅ **Vector Memory Learning** - AI learns from past fixes using semantic similarity search
 - ✅ **Instant Fix Reuse** - Repeated errors get fixed in <1s (85%+ similarity threshold)
+- ✅ **Confidence Scoring** - Low-confidence fixes require human approval
+- ✅ **Voice Control (Omi)** - Approve/reject fixes hands-free with voice commands
 - ✅ **Production-Ready Patterns** - Error logging, validation, rollback support
 
 ---
@@ -190,6 +192,66 @@ npm run dev
 
 ---
 
+## Omi Voice Integration (Optional) 🎤
+
+Control ReCode hands-free with your Omi wearable device!
+
+### Features
+- 🔔 **Proactive Notifications**: Get alerted when errors occur
+- 🎙️ **Voice Commands**: "approve the fix", "what's the status", "reject the fix"
+- ⚡ **Real-time**: Processes your voice as you speak
+
+### Quick Setup
+
+1. **Install dependencies:**
+```bash
+cd omi
+npm install
+```
+
+2. **Create Omi app:**
+   - Go to [h.omi.me/apps](https://h.omi.me/apps)
+   - Create new "Integration App"
+   - Select "Real-time Transcript Processor" trigger
+   - Save your `APP_ID` and `APP_SECRET`
+
+3. **Configure environment:**
+   - Add to `frontend/.env.local`:
+   ```bash
+   OMI_UID=your_user_id_from_omi
+   OMI_APP_ID=your_app_id
+   OMI_APP_SECRET=your_app_secret
+   ```
+
+4. **Expose webhook with ngrok:**
+   ```bash
+   ngrok http 3001
+   ```
+   - Copy HTTPS URL + `/webhook` to Omi app config
+
+5. **Start Omi server:**
+```bash
+cd omi
+npm start
+```
+
+6. **Restart agent** (to enable notifications):
+```bash
+cd agent
+npm install  # Install axios if needed
+npm run dev
+```
+
+### Voice Commands
+- "approve the fix" → Approves pending fix
+- "reject the fix" → Rejects pending fix
+- "what's the status" → System status
+- "list pending" → Show pending approvals
+
+See [omi/README.md](./omi/README.md) for detailed setup.
+
+---
+
 ## Project Structure
 
 ```
@@ -209,9 +271,15 @@ recode/
 │   │   └── fixes.ts              # Fix history + vector search functions
 │   └── package.json
 ├── agent/
-│   ├── index.js                  # AI agent (polls + fixes + vector search)
+│   ├── index.js                  # AI agent (polls + fixes + vector search + Omi)
 │   ├── clear-history.js          # Reset helper
 │   └── package.json
+├── omi/                          # Voice integration (optional)
+│   ├── server.js                 # Webhook server for Omi device
+│   ├── notifications.js          # Send notifications to Omi
+│   ├── commands.js               # Parse voice commands
+│   ├── convex-client.js          # Convex integration
+│   └── README.md                 # Omi setup guide
 ├── reset-bugs.js                 # Full reset (bugs + history)
 ├── reset-bugs-keep-history.js    # Reset bugs only (for testing vector search)
 └── DEMO_SCRIPT.md                # 2-minute pitch guide
@@ -275,11 +343,10 @@ User clicks "Add Task" again → Success! ✅
 
 ## Future Enhancements
 
-- 🔒 **Confidence Scoring** - Human approval gate for low-confidence fixes
 - 🧪 **Test Validation** - Run tests before applying fixes
 - 🌐 **Multi-Language Support** - Extend beyond TypeScript
 - 🔄 **Rollback System** - Auto-revert if fix doesn't work
-- 🎤 **Voice Integration** - Omi/Vapi voice notifications for critical fixes
+- 🎯 **Vapi Integration** - Alternative voice interface option
 
 ---
 

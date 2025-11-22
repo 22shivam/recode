@@ -6,6 +6,7 @@ import { readFile, writeFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import axios from "axios";
 
 dotenv.config({ path: "../frontend/.env.local" });
 
@@ -22,9 +23,46 @@ const openai = new OpenAI({
 
 const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL);
 
+// Omi configuration
+const OMI_UID = process.env.OMI_UID; // User's Omi UID
+const OMI_APP_ID = process.env.OMI_APP_ID;
+const OMI_APP_SECRET = process.env.OMI_APP_SECRET;
+const OMI_ENABLED = OMI_UID && OMI_APP_ID && OMI_APP_SECRET;
+
 console.log("🤖 ReCode Agent Started!");
 console.log("📡 Connected to Convex:", process.env.NEXT_PUBLIC_CONVEX_URL);
+if (OMI_ENABLED) {
+  console.log("🎤 Omi notifications enabled for UID:", OMI_UID);
+} else {
+  console.log("ℹ️  Omi notifications disabled (set OMI_UID, OMI_APP_ID, OMI_APP_SECRET to enable)");
+}
 console.log("👁️  Monitoring for errors...\n");
+
+// Omi notification helper
+async function sendOmiNotification(message) {
+  if (!OMI_ENABLED) return false;
+
+  try {
+    const url = `https://api.omi.me/v2/integrations/${OMI_APP_ID}/notification`;
+    await axios.post(
+      url,
+      null,
+      {
+        headers: {
+          Authorization: `Bearer ${OMI_APP_SECRET}`,
+          "Content-Type": "application/json",
+        },
+        params: { uid: OMI_UID, message },
+        timeout: 10000,
+      }
+    );
+    console.log(`🎤 Omi notification sent: "${message}"`);
+    return true;
+  } catch (error) {
+    console.error(`⚠️  Failed to send Omi notification:`, error.message);
+    return false;
+  }
+}
 
 // Track which errors we've already tried to fix
 const attemptedFixes = new Set();
@@ -126,6 +164,11 @@ async function fixError(error) {
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(`🐛 Error in: ${error.functionName}`);
   console.log(`📝 Message: ${error.errorMessage}`);
+
+  // Send Omi notification about error detection
+  await sendOmiNotification(
+    `⚠️ ReCode Alert: Error detected in ${error.functionName}. Agent analyzing now...`
+  );
 
   // Mark this error as attempted
   attemptedFixes.add(error._id);
@@ -319,6 +362,12 @@ IMPORTANT:
       });
 
       console.log(`✨ Fix complete! Convex will auto-reload the function.`);
+
+      // Send Omi notification about successful fix
+      await sendOmiNotification(
+        `✅ ReCode: Fix applied to ${error.functionName}! Confidence: ${confidence}%. Your app healed automatically in ${(elapsedMs / 1000).toFixed(1)}s.`
+      );
+
       console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
       // Remove from attempted fixes after successful fix
@@ -343,6 +392,12 @@ IMPORTANT:
       console.log(`⏱️  Analysis time: ${elapsedMs}ms`);
 
       console.log(`👤 Awaiting human approval in dashboard...`);
+
+      // Send Omi notification about pending approval
+      await sendOmiNotification(
+        `🤔 ReCode: Low-confidence fix ready for ${error.functionName} (${confidence}%). Say "approve fix" or check the dashboard to review.`
+      );
+
       console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
       // Keep error as unresolved until fix is approved
