@@ -2,6 +2,14 @@
 node_modules/
 frontend/node_modules/
 agent/node_modules/
+/create-recode/node_modules/
+/omi/node_modules/
+/test-app/node_modules/
+/test-app2/node_modules/
+/create-recode
+/test-app2
+/test-app
+
 
 # Environment variables (contains API keys!)
 .env

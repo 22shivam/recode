@@ -1,14 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "../frontend/convex/_generated/api.js";
+import { api } from "../convex/_generated/api.js";
 import { readFile, writeFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-import axios from "axios";
 
-dotenv.config({ path: "../frontend/.env.local" });
+// Load environment from parent directory's .env.local
+dotenv.config({ path: "../.env.local" });
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -23,49 +23,9 @@ const openai = new OpenAI({
 
 const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL);
 
-// Omi configuration
-const OMI_UID = process.env.OMI_UID; // User's Omi UID
-const OMI_APP_ID = process.env.OMI_APP_ID;
-const OMI_APP_SECRET = process.env.OMI_APP_SECRET;
-const OMI_ENABLED = OMI_UID && OMI_APP_ID && OMI_APP_SECRET;
-
 console.log("🤖 ReCode Agent Started!");
 console.log("📡 Connected to Convex:", process.env.NEXT_PUBLIC_CONVEX_URL);
-if (OMI_ENABLED) {
-  console.log("🎤 Omi notifications enabled for UID:", OMI_UID);
-} else {
-  console.log("ℹ️  Omi notifications disabled (set OMI_UID, OMI_APP_ID, OMI_APP_SECRET to enable)");
-}
 console.log("👁️  Monitoring for errors...\n");
-
-// Omi notification helper
-async function sendOmiNotification(message) {
-  if (!OMI_ENABLED) return false;
-
-  console.log(`\n📤 Sending Omi notification:`);
-  console.log(`   "${message}"`);
-
-  try {
-    const url = `https://api.omi.me/v2/integrations/${OMI_APP_ID}/notification`;
-    await axios.post(
-      url,
-      null,
-      {
-        headers: {
-          Authorization: `Bearer ${OMI_APP_SECRET}`,
-          "Content-Type": "application/json",
-        },
-        params: { uid: OMI_UID, message },
-        timeout: 10000,
-      }
-    );
-    console.log(`✅ Notification sent successfully!\n`);
-    return true;
-  } catch (error) {
-    console.error(`❌ Failed to send notification:`, error.message, `\n`);
-    return false;
-  }
-}
 
 // Track which errors we've already tried to fix
 const attemptedFixes = new Set();
@@ -94,7 +54,7 @@ async function applyApprovedFix(fix) {
   try {
     // Get the error to find the file path
     const error = await convex.query(api.errors.getAllErrors);
-    const errorDoc = error.find(e => e._id === fix.errorId);
+    const errorDoc = error.find((e) => e._id === fix.errorId);
 
     if (!errorDoc) {
       console.error("❌ Error not found, skipping fix");
@@ -168,11 +128,6 @@ async function fixError(error) {
   console.log(`🐛 Error in: ${error.functionName}`);
   console.log(`📝 Message: ${error.errorMessage}`);
 
-  // Send Omi notification about error detection
-  await sendOmiNotification(
-    `⚠️ ReCode Alert: Error detected in ${error.functionName}. Agent analyzing now...`
-  );
-
   // Mark this error as attempted
   attemptedFixes.add(error._id);
 
@@ -186,7 +141,7 @@ async function fixError(error) {
     console.log(`🔍 Searching for similar past fixes...`);
     const embedding = await generateEmbedding(errorPattern);
 
-    // Search for similar fixes in Convex vector store (using action for vector search)
+    // Search for similar fixes in Convex vector store
     const similarFixes = await convex.action(api.fixes.searchSimilarFixes, {
       embedding: embedding,
       limit: 1,
@@ -195,9 +150,11 @@ async function fixError(error) {
     // If we found a similar fix with high confidence, use it!
     if (similarFixes.length > 0) {
       const bestMatch = similarFixes[0];
-      const similarity = bestMatch._score || 0; // Convex returns similarity score
+      const similarity = bestMatch._score || 0;
 
-      console.log(`\n💡 Found similar past fix! (Similarity: ${(similarity * 100).toFixed(1)}%)`);
+      console.log(
+        `\n💡 Found similar past fix! (Similarity: ${(similarity * 100).toFixed(1)}%)`
+      );
       console.log(`   Pattern: "${bestMatch.errorPattern}"`);
       console.log(`   Times used: ${bestMatch.timesApplied || 1}x`);
 
@@ -205,10 +162,9 @@ async function fixError(error) {
       if (similarity > 0.85) {
         const elapsedMs = Date.now() - startTime;
         console.log(`\n⚡ INSTANT FIX from memory! (${elapsedMs}ms)`);
-        console.log(`📂 Reading file: ${getFilePath(error.functionName)}`);
 
-        // Apply the cached fix
         const filePath = getFilePath(error.functionName);
+        console.log(`📂 Writing cached fix to: ${filePath}`);
         await writeFile(filePath, bestMatch.fixedCode, "utf-8");
 
         // Increment usage counter
@@ -224,21 +180,21 @@ async function fixError(error) {
         console.log(`✨ Applied cached fix! No Claude API call needed.`);
         console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
-        // Remove from attempted fixes after successful application
         attemptedFixes.delete(error._id);
         return;
       } else {
-        console.log(`   Similarity too low (${(similarity * 100).toFixed(1)}% < 85%), asking Claude for fresh analysis...`);
+        console.log(
+          `   Similarity too low (${(similarity * 100).toFixed(1)}% < 85%), asking Claude...`
+        );
       }
     } else {
       console.log(`   No similar fixes found in memory, asking Claude...`);
     }
 
-    // No cached fix found or similarity too low, proceed with Claude
+    // No cached fix found, proceed with Claude
     const filePath = getFilePath(error.functionName);
     console.log(`📂 Reading file: ${filePath}`);
 
-    // Read the broken code
     const brokenCode = await readFile(filePath, "utf-8");
 
     console.log(`🤖 Asking Claude AI to fix the code...`);
@@ -290,7 +246,6 @@ IMPORTANT:
     // Parse Claude's JSON response
     let fixResult;
     try {
-      // Try to extract JSON if wrapped in markdown
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         fixResult = JSON.parse(jsonMatch[0]);
@@ -298,12 +253,13 @@ IMPORTANT:
         fixResult = JSON.parse(responseText);
       }
     } catch (parseError) {
-      console.error("⚠️  Failed to parse JSON response, falling back to direct code");
-      // Fallback: treat entire response as code with high confidence
+      console.error(
+        "⚠️  Failed to parse JSON response, falling back to direct code"
+      );
       fixResult = {
         confidence: 75,
         reasoning: "Fix generated (JSON parse failed)",
-        fixedCode: responseText
+        fixedCode: responseText,
       };
     }
 
@@ -311,7 +267,7 @@ IMPORTANT:
     const confidence = fixResult.confidence || 75;
     const reasoning = fixResult.reasoning || "Fix generated by Claude";
 
-    // Extract code from markdown blocks if Claude wrapped it despite instructions
+    // Extract code from markdown blocks if Claude wrapped it
     const codeBlockMatch = fixedCode.match(/```(?:typescript|ts)?\n([\s\S]*?)```/);
     if (codeBlockMatch) {
       fixedCode = codeBlockMatch[1].trim();
@@ -322,28 +278,24 @@ IMPORTANT:
     console.log(`🎯 Confidence: ${confidence}%`);
     console.log(`💭 Reasoning: ${reasoning}`);
 
-    // Validate the fix has required imports
-    if (!fixedCode.includes('import') || !fixedCode.includes('mutation') || !fixedCode.includes('query')) {
-      throw new Error("Invalid fix: Missing required imports or exports");
-    }
-
     // Show a preview
     console.log(`\n📝 Preview of fix (first 300 chars):`);
     console.log(fixedCode.substring(0, 300) + "...\n");
 
-    const CONFIDENCE_THRESHOLD = 101;
+    const CONFIDENCE_THRESHOLD = 80;
 
     // Check if confidence is high enough for auto-apply
     if (confidence >= CONFIDENCE_THRESHOLD) {
-      console.log(`✅ Confidence ${confidence}% >= ${CONFIDENCE_THRESHOLD}% threshold - Auto-applying!`);
+      console.log(
+        `✅ Confidence ${confidence}% >= ${CONFIDENCE_THRESHOLD}% threshold - Auto-applying!`
+      );
       console.log(`💾 Writing fixed code back to ${filePath}...`);
 
-      // Write the fix back
       await writeFile(filePath, fixedCode, "utf-8");
 
-      console.log(`📊 Logging fix to Convex with embedding...`);
+      console.log(`📊 Logging fix to Convex...`);
 
-      // Log the fix to Convex with embedding and mark as applied
+      // Log the fix with embedding and mark as applied
       await convex.mutation(api.fixes.logFix, {
         errorId: error._id,
         errorPattern: errorPattern,
@@ -365,18 +317,13 @@ IMPORTANT:
       });
 
       console.log(`✨ Fix complete! Convex will auto-reload the function.`);
-
-      // Send Omi notification about successful fix
-      await sendOmiNotification(
-        `✅ ReCode: Fix applied to ${error.functionName}! Confidence: ${confidence}%. Your app healed automatically in ${(elapsedMs / 1000).toFixed(1)}s.`
-      );
-
       console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
-      // Remove from attempted fixes after successful fix
       attemptedFixes.delete(error._id);
     } else {
-      console.log(`⚠️  Confidence ${confidence}% < ${CONFIDENCE_THRESHOLD}% threshold - Pending approval`);
+      console.log(
+        `⚠️  Confidence ${confidence}% < ${CONFIDENCE_THRESHOLD}% threshold - Pending approval`
+      );
       console.log(`📊 Logging fix to Convex for manual review...`);
 
       // Log the fix but mark as pending
@@ -393,18 +340,8 @@ IMPORTANT:
 
       const elapsedMs = Date.now() - startTime;
       console.log(`⏱️  Analysis time: ${elapsedMs}ms`);
-
       console.log(`👤 Awaiting human approval in dashboard...`);
-
-      // Send Omi notification about pending approval
-      await sendOmiNotification(
-        `🤔 ReCode: Low-confidence fix ready for ${error.functionName} (${confidence}%). Say "approve fix" or check the dashboard to review.`
-      );
-
       console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
-
-      // Keep error as unresolved until fix is approved
-      // Don't remove from attempted fixes - we'll monitor for approval
     }
   } catch (err) {
     console.error(`❌ Failed to fix error:`, err.message);
@@ -428,7 +365,7 @@ async function generateEmbedding(text) {
 function getFilePath(functionName) {
   // Extract the file name from function name (e.g., "tasks.addTask" -> "tasks")
   const fileName = functionName.split(".")[0];
-  return join(__dirname, "..", "frontend", "convex", `${fileName}.ts`);
+  return join(__dirname, "..", "convex", `${fileName}.ts`);
 }
 
 // Poll every 3 seconds

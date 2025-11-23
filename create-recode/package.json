@@ -1,0 +1,30 @@
+{
+  "name": "create-recode",
+  "version": "0.1.0",
+  "description": "Add self-healing AI to any Convex app - auto-detects and fixes errors with Claude AI",
+  "main": "bin/cli.js",
+  "bin": {
+    "create-recode": "./bin/cli.js"
+  },
+  "type": "module",
+  "keywords": [
+    "convex",
+    "ai",
+    "debugging",
+    "self-healing",
+    "claude",
+    "error-tracking"
+  ],
+  "author": "ReCode Team",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^12.0.0",
+    "chalk": "^5.3.0",
+    "ora": "^8.0.1",
+    "prompts": "^2.4.2",
+    "fs-extra": "^11.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
