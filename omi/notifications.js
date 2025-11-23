@@ -23,6 +23,9 @@ export async function sendOmiNotification(uid, message) {
     return false;
   }
 
+  console.log(`\n📤 Sending Omi notification to ${uid}:`);
+  console.log(`   "${message}"`);
+
   try {
     const url = `https://api.omi.me/v2/integrations/${OMI_APP_ID}/notification`;
 
@@ -42,11 +45,11 @@ export async function sendOmiNotification(uid, message) {
       }
     );
 
-    console.log(`✅ Omi notification sent to ${uid}: "${message}"`);
+    console.log(`✅ Notification sent successfully!\n`);
     return true;
   } catch (error) {
     console.error(
-      `❌ Failed to send Omi notification:`,
+      `❌ Failed to send notification:`,
       error.response?.data || error.message
     );
     return false;

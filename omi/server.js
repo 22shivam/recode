@@ -102,15 +102,15 @@ app.post("/webhook", async (req, res) => {
 
     const state = sessionState.get(session_id);
 
-    // Parse command from segments
-    const command = parseCommand(segments);
+    // Parse command from segments (now uses Claude AI - async!)
+    const command = await parseCommand(segments);
 
     if (!command) {
       console.log("ℹ️  No command detected in transcript");
       return;
     }
 
-    console.log(`🎯 Command detected: ${command.type} (confidence: ${command.confidence})`);
+    console.log(`🎯 Command detected: ${command.type} (confidence: ${(command.confidence * 100).toFixed(0)}%)`);
     console.log(`💬 Text: "${command.text}"`);
 
     // Check if we already processed this command in this session
@@ -201,12 +201,12 @@ async function handleRejectCommand(uid) {
     return;
   }
 
-  // Reject the most recent pending fix
+  // Reject the most recent pending fix (deletes it entirely)
   const fix = pendingFixes[0];
   await rejectFix(fix._id);
 
-  console.log(`❌ Rejected fix: ${fix._id}`);
-  await sendOmiNotification(uid, "❌ Fix rejected. The error remains unresolved.");
+  console.log(`❌ Rejected and deleted fix: ${fix._id}`);
+  await sendOmiNotification(uid, "❌ Fix rejected and removed. The error remains unresolved. Agent won't learn from this bad solution.");
 }
 
 /**

@@ -6,6 +6,7 @@ Voice-controlled code healing using Omi wearable device.
 
 - 🔔 **Proactive Notifications**: Get alerted when errors occur and fixes are applied
 - 🎙️ **Voice Commands**: Approve/reject fixes hands-free
+- 🤖 **Claude-Powered Parsing**: Natural language understanding (not just keywords!)
 - 📊 **Status Updates**: Ask "what's the status" anytime
 - ⚡ **Real-time**: Processes transcripts as you speak
 
@@ -80,11 +81,29 @@ Once configured, you can say:
 | "what's the status" | Get system status (errors, fixes) |
 | "list pending" | List all pending approvals |
 
+### Natural Language Understanding 🤖
+
+Unlike traditional keyword matching, ReCode uses **Claude AI** to understand your intent. This means you can speak naturally:
+
+| You Say | Claude Understands | Action |
+|---------|-------------------|--------|
+| "yeah approve it" | APPROVE (95%) | Approves fix |
+| "I'm not sure about this" | REJECT (70%) | Rejects fix |
+| "looks good to me" | APPROVE (90%) | Approves fix |
+| "how are things?" | STATUS (80%) | Shows status |
+| "hello there" | NONE (99%) | Ignores (not a command) |
+
+**Benefits:**
+- ✅ Speak naturally, no need to memorize exact phrases
+- ✅ Understands context and intent
+- ✅ Handles uncertainty ("I'm not sure" = rejection)
+- ✅ Filters out non-commands automatically
+
 ## How It Works
 
 ```
 ┌─────────────┐
-│ Omi Device  │ (You speak "approve the fix")
+│ Omi Device  │ (You speak "yeah approve it")
 └──────┬──────┘
        │ Real-time transcript
        ↓
@@ -94,9 +113,19 @@ Once configured, you can say:
        │ POST /webhook
        ↓
 ┌─────────────┐
-│ Express App │ (This server - parses command)
+│ Express App │ (This server)
 └──────┬──────┘
-       │ Calls Convex
+       │ Sends transcript to Claude
+       ↓
+┌─────────────┐
+│ Claude AI   │ (Parses intent: APPROVE 95%)
+└──────┬──────┘
+       │ Returns command
+       ↓
+┌─────────────┐
+│ Convex Call │ (approveFix mutation)
+└──────┬──────┘
+       │ Updates database
        ↓
 ┌─────────────┐
 │   Convex    │ (Updates fix status to "approved")
